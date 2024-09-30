@@ -1,6 +1,6 @@
 ---
 slug: '/'
-sidebar_label: 'DevelopProtocols'
+sidebar_label: 'Protocols'
 ---
 
 # Developing ACS Protocols
@@ -66,8 +66,8 @@ public class IntegrationProtocol(ILogger Logger) : IIntegrationProtocol
 }
 
 ```
-The IntegrationProtocol must implement the **IIntegrationProtocol** interface. The class constructor should include the **ILogger Logger** interface that writes log messages to the **SMAApiAgentNetcom.log** file in the SAM/Log directory. 
+The **IntegrationProtocol** class must implement the **IIntegrationProtocol** interface. The class constructor should include the **ILogger Logger** interface that writes log messages to the **SMAApiAgentNetcom.log** file in the SAM/Log directory. 
 
 The class must contain the **InitialStatus** and **Status** methods. In each case the methods accept the **IConfig** interface which provides the ACS agent configuration information.
-When referencing the configuration information, the actual name value in the line pf code integrationConfig?Config.**apiUrl**.ToString() is the name of the resource defined in the schema definition.
+When referencing the configuration information, the actual name value in the line pf code integrationConfig?Config.**apiUrl**.ToString() is the name of the resource defined in the **IntegrationSchemaGeneration** class definition.
 

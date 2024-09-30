@@ -52,7 +52,7 @@ public class IntegrationFactory : IIntegrationFactory
 }
 
 ```
-The class must implement the **IIntegrationFactory** interface.
+The **IntegrationFactory** class must implement the **IIntegrationFactory** interface.
 
 Provide a unique name and version for your ACS implementation (in the above example the name is ACSTest and  the version is 0.1.0). 
 
@@ -63,8 +63,8 @@ At the root level create the **Integration** class and insert the following code
 using ACSSDK.Models;
 using ACSSDK.Interfaces;
 using Microsoft.Extensions.Logging;
-using ACCSTest.SchemaGenerators;
-using ACCSTest.Protocols;
+using ACSTest.SchemaGenerators;
+using ACSTest.Protocols;
 
 namespace ACSTest;
 
@@ -94,7 +94,7 @@ public sealed class Integration : IIntegration
 }
 
 ```
-The class must implement the **IIntegration** interface.
+The **Integration** class must implement the **IIntegration** interface.
 
 The Integration class sets up the references to the following modules
 
