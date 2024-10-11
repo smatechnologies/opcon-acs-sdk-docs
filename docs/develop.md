@@ -7,70 +7,77 @@ sidebar_label: 'Develop'
 
 The ACS implementation is a C# .net Library. 
 
-The SDK includes 2 sample implementations, ElementaryIntegration and OpConIntegration.
+The SDK includes 2 sample implementations, ElementaryIntegration and OpConIntegration. Each sample provides
+different approaches to creating integrations.
+
+The SDK documentation is based on the AsyscoAMT implementation.
 
 - ElementaryIntegration shows various schema definitions for creating tasks definition screens.
 - OpConIntegration shows an implementation of selecting and running tasks in a remote opCon system.
 
 1. Create a C# Library project.
 2. Add Nuget packages ACSSDK (SMA Package).
-3. Add Nuget Newtonsoft.Json package.
-4. Add the initial **IntegrationFactory** and **Integration** classes.
+3. Add the initial **IntegrationFactory** and **Integration** classes.
+
+![Project Structure](../static/img/project-structure.png)
+
+The above diagram shows a typical project structure that will be used during the remainder of the SDK documentation.
 
 ## Create IntegrationFactory class
 At the root level create the **IntegrationFactory** class and insert the following code.
 
 ```
 using ACSSDK.Interfaces;
+using AsyscoAMT;
 using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace ACSTest;
+namespace AsyscoAmt;
 
 public class IntegrationFactory : IIntegrationFactory
 {
-    public const string ACSTEST = "ACSTest";
+    public const string AppName = "AsyscoAMT";
 
-    //   public string Version => "0.1.0";
-    public string Version => Assembly.GetAssembly(GetType())?.GetName().Version?.ToString() ?? "0.1.0";
+    public IEnumerable<string> SupportedApplications { get; } = [AppName];
 
-    public IEnumerable<string> SupportedApplications => new List<string> {ACSTEST};
+    public IEnumerable<CultureInfo> SupportedLanguages => [new("en-US")];
 
-    public IEnumerable<CultureInfo> SupportedLanguages => new List<CultureInfo> { new("en-US") };
+    public string Version => "0.0.1";
 
-    public IIntegration CreateIntegration(string application, IConfig config, ILogger logger) => application switch
+    public IIntegration CreateIntegration(string application, IConfig integrationInfo, ILogger logger)
     {
-        ACSTEST => new Integration(config, logger),
-        _ => throw new NotImplementedException(nameof(application))
-    };
+        if (application != AppName)
+        {
+            throw new ArgumentException($"Unsupported application {application}", nameof(application));
+        }
+
+        return new Integration(integrationInfo, logger);
+    }
 }
 
 ```
+                    IntegrationFactory.cs 
+
 The **IntegrationFactory** class must implement the **IIntegrationFactory** interface.
 
-Provide a unique name and version for your ACS implementation (in the above example the name is ACSTest and  the version is 0.1.0). 
+It provides the information about the ACS implementation and is the entry point into the ACS development.
 
 ## Create Integration class
 At the root level create the **Integration** class and insert the following code.
 
 ```
-using ACSSDK.Models;
 using ACSSDK.Interfaces;
+using AsyscoAMT.Generators;
+using AsyscoAMT.Protocols;
 using Microsoft.Extensions.Logging;
-using ACSTest.SchemaGenerators;
-using ACSTest.Protocols;
 
-namespace ACSTest;
+namespace AsyscoAMT;
 
 public sealed class Integration : IIntegration
 {
-    public IConfig IntegrationInfo { get; init; }
+
+    public IConfig IntegrationInfo { get; set; }
+
     public IIntegrationProtocol IntegrationProtocol { get; init; }
 
     public ITaskLogProtocol TaskLogProtocol { get; init; }
@@ -83,17 +90,36 @@ public sealed class Integration : IIntegration
     {
         IntegrationInfo = config;
         IntegrationProtocol = new IntegrationProtocol(logger);
+        SchemaGenerator = new SchemaGenerator(IntegrationInfo, logger);
         TaskProtocol = new TaskProtocol(this, logger);
         TaskLogProtocol = new TaskLogProtocol(this, logger);
-        SchemaGenerator = new SchemaGenerator(this, logger);
-
-        logger.LogInformation("Loading ACSTest Config version {v}", config.Version);
     }
 
-    public void Dispose() => GC.SuppressFinalize(this);
+    private bool disposedValue;
+
+    private void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                // TODO: dispose managed state (managed objects)
+            }
+
+            disposedValue = true;
+        }
+    }
+    public void Dispose()
+    {
+        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
 }
 
 ```
+                    Integration.cs 
+
 The **Integration** class must implement the **IIntegration** interface.
 
 The Integration class sets up the references to the following modules
@@ -104,3 +130,4 @@ The Integration class sets up the references to the following modules
 - SchemaGenerator       class to be created that defines the json schemas that contain the agent and task configuration requirements.
 - TaskProtocol          class to be created that defines how tasks on the target system are managed.  
 
+Includes the **Integration** method called by the IntegrationFactory.
