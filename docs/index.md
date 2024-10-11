@@ -14,3 +14,4 @@ An **External Application** is any software, tool, or service which exists outsi
 
 ## Integration
 An **Integration** is a piece of software which is written to translate instructions from SMA Technologies products in order to perform tasks within an External Application and then report back with the results of those tasks. The ACS SDK offers a flexible and powerful Framework to facilitate construction of these Integrations. It encapsulates all business logic which is necessary to execute it's associated tasks in addition to describing it's configuration options.
+
