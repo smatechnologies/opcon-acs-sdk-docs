@@ -5,6 +5,7 @@ sidebar_label: 'ACS (Agentless Connector System) SDK'
 
 # ACS SDK Documentation
 
+
 The **ACS (Agentless Connector System) SDK** allows developers, both within SMA Technologies and without, to quickly build software plugins which allow SMA Technologies products to integrate with external applications.
 
 # General Concepts & Terminology
