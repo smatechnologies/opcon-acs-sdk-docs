@@ -32,7 +32,7 @@ namespace AsyscoAMT.Models;
 public record IntegrationOpaqueConfig(string? AuthToken);
 
 ```
-                   IntegrationOpaqueConfig.cs
+
 
 The above snippet shows that an AuthToken has been persisted to the IntegrationOpaqueConfig structure. The value is then available to all tasks associated with the agent.
 
@@ -45,10 +45,9 @@ using System.Threading.Tasks;
 
 namespace AsyscoAMT.Models;
 
-public record TaskOpaqueConfig(int? AdvancedSchemaGetCount, Guid? TaskId, String? Token, int? jobId, int? TestCntr);
+public record TaskOpaqueConfig(int? AdvancedSchemaGetCount, Guid? TaskId, String? Token, int? AmtBatchRequestId);
 
 ```
-                   IntegrationOpaqueConfig.cs
 
 The above snippet shows the various values that are persisted to the TaskOpaqueConfig structure during a method execution of the task. These values are then available to all
 subsequent TaskProtocol method executions of the same task.
@@ -96,25 +95,17 @@ using System.Threading.Tasks;
 
 namespace AsyscoAMT.Models;
 
-public record BatchServerJobs
-(
-    string? JobName = null,
-    IEnumerable<string>? TaskValues = null
-);
-
-public record ScriptJobs
-(
-    string? ScriptName = null,
-    IEnumerable<string>? ScriptParameters = null
-);
-
 public record TaskConfig
 (
     string? ApplicationName = null,
+    string? AmtSubmitUser = null,
     string? AmtUser = null,
-    BatchServerJobs? BatchServerJobs = null,
-    ScriptJobs? ScriptJobs = null
+    string? AmtStation = null,
+    string? AmtQueueName = null,
+    string? JobName = null,
+    string? ScriptName = null,
+    IEnumerable<string>? TaskValues = null,
+    IEnumerable<string>? ScriptParameters = null
 );
 
 ```
-                   TaskConfig.cs

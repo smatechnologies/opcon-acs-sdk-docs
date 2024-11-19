@@ -30,35 +30,79 @@ namespace ACCTest.Protocols;
 public class IntegrationProtocol(ILogger Logger) : IIntegrationProtocol
 {
 
-    public async Task<Result> InitialStatus(IConfig integrationConfig)
+     public Task<Result> InitialStatus(IConfig integrationConfig)
     {
-        var url = integrationConfig?.Config?.apiUrl.ToString();
-        var user = integrationConfig?.Config?.apiUser.ToString();
-        var password = integrationConfig?.Config?.apiUserPassword.ToString();
-        // var opaqueConfig = JsonConvert.DeserializeObject<IntegrationOpaqueConfig>(integrationConfig.OpaqueConfig ?? "{}") ?? new(null);
+        // perform heartbeat check
+        var url = integrationConfig.Config.url;
+        var user = integrationConfig.Config.apiUser;
+        var password = integrationConfig.Config.apiUserPassword;
 
         if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(user) || string.IsNullOrEmpty(password))
         {
             Logger.LogCritical("Communication can not be established : Invalid Configuration");
-            return new Result(ResultCode.NotCommunicating);
+            return Task.FromResult(new Result(ResultCode.NotCommunicating));
         }
+        Logger.LogCritical($"url {url} user {user} pword {password}");
 
-        // dummy code for testing
-        Logger.LogCritical("AsyscoAMT - Communications established");
-        return Task.FromResult(new Result(ResultCode.Communicating));
-        //        throw new NotImplementedException();
+        bool running = false;
+        running = performHeartBeat(url).Result;
+        if(running == true)
+        {
+            Logger.LogCritical("AsyscoAMT - Communications established");
+            return Task.FromResult(new Result(ResultCode.Communicating));
+        }
+    else
+        {
+            Logger.LogCritical("Communication can not be established : No connection");
+            return Task.FromResult(new Result(ResultCode.NotCommunicating));
+        }
     }
 
     public Task<Result> Status(IConfig integrationConfig)
     {
-        // dummy code for testing
-        return Task.FromResult(new Result(ResultCode.Communicating));
-        //        throw new NotImplementedException();
+        // perform login, logoff
+        var url = integrationConfig.Config.url;
+        var user = integrationConfig.Config.apiUser;
+        var password = integrationConfig.Config.apiUserPassword;
+
+        bool running = false;
+        running = performHeartBeat(url).Result;
+        if (running == true)
+        {
+            Logger.LogCritical("AsyscoAMT - Communications established");
+            return Task.FromResult(new Result(ResultCode.Communicating));
+        }
+        else
+        {
+            Logger.LogCritical("Communication can not be established : No connection");
+            return Task.FromResult(new Result(ResultCode.NotCommunicating));
+        }
+    }
+
+    private async Task<bool> performHeartBeat(
+        string url
+        ) 
+    {
+        bool running = false;
+        string? heartBeat = null;
+
+        HttpClient client = new AsyscoAmtApi(Logger).GetClient(url, null);
+        Logger.LogCritical($"Url : {url}");
+        heartBeat = await new AsyscoAmtApi(Logger).HeartBeat(client, url);
+        if (heartBeat is not null)
+        {
+            running = true;
+        }
+        else
+        {
+            running = false;
+        }
+        client.Dispose();
+        return running;
     }
 }
 
 ```
-                   IntegrationProtocol.cs 
 
 The IntegrationProtocol class manages the connection between the ACS implementation and the remote system. After configuration has been completed and the ACS implementation is marked-up, the **InitialStatus** method is called to establish the connection to the remote system. If the connection is successfully established, a **Communicating** status is returned or if unsuccessful a **NotCommunicating** status is returned. If a **Communicating** status is returned, the ACS agent will be marked-up and it will be possible to submit task requests to the remote system.
 
@@ -66,7 +110,7 @@ Once the connection is established, the **Status** method is called on a regular
 
 The class must contain the **InitialStatus** and **Status** methods. In each case the methods accept the **IConfig** interface which provides the ACS agent configuration information.
 
-The above code snippet is a dummy implementation allowing the ACS agent to start and remain active. The code also shows how the agent definition values can be retrieved.
+The above code snippet uses the **performHeartBeat** to send a Rest-API request to the Asysco AMT Batch server to determine if the batch server is available to execute tasks. 
 
 The inclusion of **ILogger Logger** allows logging messages to be displayed in the SMAApiAgentNetcom.log file. 
 
@@ -78,6 +122,7 @@ The **TaskProtocol** class must implement the **ITaskProtocol** interface. The c
 using ACSSDK.Interfaces;
 using ACSSDK.Models;
 using AsyscoAMT.Models;
+using AsyscoAmt.AsyscoAmt;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
@@ -86,6 +131,17 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static AsyscoAmt.AsyscoAmt.AsyscoAmtObjects;
+using Newtonsoft.Json.Linq;
+using static AsyscoAmt.AsyscoAmt.AsyscoAmtEnums;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Collections;
+using System.Net.NetworkInformation;
+using static System.Net.Mime.MediaTypeNames;
+using AsyscoAmt;
+using System.Text.RegularExpressions;
+using Microsoft.VisualBasic;
+using AsyscoAMT.AsyscoAmt;
 
 namespace AsyscoAMT.Protocols;
 
@@ -95,33 +151,141 @@ public class TaskProtocol(IIntegration Integration, ILogger Logger) : ITaskProto
 
     public Task<TaskStatusEvent> CancelTask(ITaskConfig taskConfig)
     {
-        throw new NotImplementedException();
+        var url = Integration.IntegrationInfo.Config.url;
+        var existingOpaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig);
+        var stConfig = JsonConvert.SerializeObject(taskConfig.Config);
+        TaskConfig tConfig = JsonConvert.DeserializeObject<TaskConfig>(stConfig);
+
+        var taskId = GetTaskId(taskConfig);
+        string token = existingOpaque.Token;
+        int batchRequestId = existingOpaque.AmtBatchRequestId.Value;
+
+        Logger.LogInformation($"CancelTask called for task {taskId}");
+        var jobStatus = new AsyscoAmtImpl(Logger).KillAmtTask(url, token, batchRequestId, taskId, tConfig).Result;
+
+        return Task.FromResult(new TaskStatusEvent(TaskStatusCode.Canceled, 0, "Killed"));
     }
 
     public Task<TaskStatusEvent> DeleteTask(ITaskConfig taskConfig)
     {
-        throw new NotImplementedException();
+        return Task.FromResult(new TaskStatusEvent(TaskStatusCode.Canceled, 0, "Deleted"));
     }
 
     public Task<TaskStatusEvent> StartTask(ITaskConfig taskConfig)
     {
-        var existingOpaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig ?? "{}") ?? new(0, default, null, 0, 0);
+
+        var stStatus = new TaskStatusEvent(TaskStatusCode.Failed, null, "Failed");
+
+        try
+        {
+            var existingOpaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig ?? "{}") ?? new(0, default, null, 0);
+            var stConfig = JsonConvert.SerializeObject(taskConfig.Config);
+            TaskConfig taskConfigObj = JsonConvert.DeserializeObject<TaskConfig>(stConfig);
+
+            var url = Integration.IntegrationInfo.Config.url;
+            var apiUser = Integration.IntegrationInfo.Config.apiUser;
+            var apiUserPassword = Integration.IntegrationInfo.Config.apiUserPassword;
+
+            var application = taskConfigObj.ApplicationName;
+ 
+            IAsyscoAmtLogon? logon = null;
+            IAsyscoAmtBatchRequest? batchRequest = null;
+
+            var taskId = Guid.NewGuid();
+            HttpClient client = new AsyscoAmtApi(Logger).GetClient(url, null);
+            logon = new AsyscoAmtImpl(Logger).PerformAmtLogin(client, url, apiUser, apiUserPassword).Result;
+            if (logon is not null)
+            {
+
+                var token = logon.AmtLogonToken;
+                Logger.LogCritical($"Token Value : {token}");
+                client.DefaultRequestHeaders.Add("X-AMT-LogonToken", token);
+                //start task
+                batchRequest = new AsyscoAmtImpl(Logger).StartAmtTask(client, url, taskId.ToString(), taskConfigObj).Result;
+                if (batchRequest is not null)
+                {
+                    int? batchRequestId = batchRequest.BatchRequestId;
+                    if (batchRequestId > 0)
+                    {
+                        var updateOpaque = existingOpaque with { TaskId = taskId, Token = token, AmtBatchRequestId = batchRequestId };
+                        taskConfig.OpaqueConfig = JsonConvert.SerializeObject(updateOpaque);
+                        stStatus = new TaskStatusEvent(TaskStatusCode.Running, null, "Running");
+                    }
+                    else
+                    {
+                        Logger.LogCritical($"StartTask : Url : Job Start error");
+                        var updateOpaque = existingOpaque with { TaskId = taskId, Token = token, AmtBatchRequestId = batchRequestId };
+                        taskConfig.OpaqueConfig = JsonConvert.SerializeObject(updateOpaque);
+                        stStatus = new TaskStatusEvent(TaskStatusCode.Failed, null, "Failed");
+                    }
+                }
+                else
+                {
+                    Logger.LogCritical($"StartTask : Url : Job Start error");
+                    stStatus = new TaskStatusEvent(TaskStatusCode.Failed, null, "Failed");
+                }
+            }
+            else
+            {
+                Logger.LogCritical($"StartTask : Url : Authentication error");
+                stStatus = new TaskStatusEvent(TaskStatusCode.Failed, null, "Failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogCritical($"{ex}");
+        }
+        return Task.FromResult(stStatus);
+    }
+
+    public Task<TaskStatusEvent> TaskStatus(ITaskConfig taskConfig)
+    {
+        var url = Integration.IntegrationInfo.Config.url;
+        var existingOpaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig);
         var stConfig = JsonConvert.SerializeObject(taskConfig.Config);
         TaskConfig tConfig = JsonConvert.DeserializeObject<TaskConfig>(stConfig);
 
-        var url = Integration.IntegrationInfo.Config.url;
-        var user = Integration.IntegrationInfo.Config.apiUser;
-        var password = Integration.IntegrationInfo.Config.apiUserPassword;
+        TaskStatusEvent returnStatus = new TaskStatusEvent(TaskStatusCode.Failed, null, "Failed");
+        var taskId = GetTaskId(taskConfig);
+        string token = existingOpaque.Token;
+        int batchRequestId = existingOpaque.AmtBatchRequestId.Value;
 
-        var application = tConfig.ApplicationName;
-        var jobName = tConfig.BatchServerJobs.JobName;
+        Logger.LogInformation($"TaskStatus called for task {taskId}");
+        returnStatus = new AsyscoAmtImpl(Logger).StatusAmtTask(url, token, batchRequestId, taskId, tConfig).Result;
+        return Task.FromResult(returnStatus);
+    }
 
-        // login
+    private static string GetTaskId(ITaskConfig taskConfig)
+    {
+        var opaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig);
+        return opaque.TaskId.ToString();
+    }
+}
 
-        //start task
+```
+It should be noted that the implementation is stateless and each request (CancelTask, DeleteTask, StartTask, TaskStatus) must reference the task opaque config module for
+information that can be passed between task requests.
 
-        Logger.LogCritical($"StartTask : Url : {url} apiuser : {user} application {application} batch job {jobName}");
+The above code snippet is from the AsyscoAmt TaskProtocol module and shows how the tasks are implemented.
+- **CancelTask**       Is used to terminate a task in the remote system. Requires the Agent **Kill** function within OpCon to be enabled. References the TaskOpaqueConfig module for authorization token and batch request id.
+- **DeleteTask**       Is called after task completion to perform a cleanup if required.
+- **StartTask**        Is used to start a task. Initializes the TaskOpaqueConfig element setting the taskid, the authorization token and the batch request id.
+- **TaskStatus**       Is used to determine the status of the task.   References the TaskOpaqueConfig module for taskid, the authorization token and batch request id. When job completion is confirmed, creates the joblog output file.
 
+The task definitions are saved in a TaskConfig object (see Models TaskConfig). The reason for this is to manage the task definitions to determine which values are present and
+which values are not present. While it is possible to use the ITaskConfig interface to retrieve definition values, ITaskConfig consists of dynamic values and only contains the
+values entered for the task definition. It contains no reference to null values. 
+
+Properties can be used to pass information between task methods and tasks associated with the same schedule. These properties consist of **ScopedProperties** or **Properties**. ScopedProperties equate to schedule instance properties and properties equate to job instance properties. The values are referenced through the ITaskConfig interface which is passed to each task method.
+
+```
+    public Task<TaskStatusEvent> StartTask(ITaskConfig taskConfig)
+    {
+        var existingOpaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig ?? "{}") ?? new(0, default);
+        var newOpaque = existingOpaque with { TaskId = Guid.NewGuid() };
+        taskConfig.OpaqueConfig = JsonConvert.SerializeObject(newOpaque);
+
+        LogConfig("StartTask - Before Config Update", taskConfig);
         taskConfig.Properties["Task Started?"] = "Yes";
         if (!taskConfig.ScopedProperties.TryGetValue("taskStartCount", out var startCount))
         {
@@ -131,94 +295,65 @@ public class TaskProtocol(IIntegration Integration, ILogger Logger) : ITaskProto
         {
             taskConfig.ScopedProperties["taskStartCount"] = (int.Parse(startCount) + 1).ToString();
         }
+        LogConfig("StartTask - After Config Update", taskConfig);
 
-        // create initial opaque config
-        var newOpaque = existingOpaque with { TaskId = Guid.NewGuid(), Token = null, TestCntr = 0 };
-        taskConfig.OpaqueConfig = JsonConvert.SerializeObject(newOpaque);
-        var status = new TaskStatusEvent(TaskStatusCode.Running, null, "Running");
+        TaskInstance.StartNew(taskConfig, UpdateTaskStatus, Logger);
+        var status = new TaskStatusEvent(TaskStatusCode.NotStarted, null, "NotStarted");
         return Task.FromResult(status);
     }
 
-    public Task<TaskStatusEvent> TaskStatus(ITaskConfig taskConfig)
+```
+## TaskLogProtocol
+The **TaskLogProtocol** must include the **IIntegration Intgration** and **ILogger Logger** interfaces that provides access to the agent information and that writes log messages to the **SMAApiAgentNetcom.log** file in the SAM/Log directory. 
+
+```
+using ACSSDK.Interfaces;
+using AsyscoAMT.Models;
+using AsyscoAmt;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace AsyscoAMT.Protocols;
+
+public class TaskLogProtocol(IIntegration Integration, ILogger Logger) : ITaskLogProtocol
+{
+    public async Task<string> GetTaskLogFile(IReadOnlyTaskConfig taskInfo, string filePath)
     {
-
-        var url = Integration.IntegrationInfo.Config.url;
-        var existingOpaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig);
-        var stConfig = JsonConvert.SerializeObject(taskConfig.Config);
-        TaskConfig tConfig = JsonConvert.DeserializeObject<TaskConfig>(stConfig);
-
-        var taskId = GetTaskId(taskConfig);
-        _taskStatuses.TryGetValue(taskId, out var log);
-        var updates = log?.StatusUpdates;
-
-        Logger.LogCritical($"TaskStatus : get status of job {tConfig.BatchServerJobs.JobName}");
-        taskConfig.Properties["Task Status Events"] = updates?.Count().ToString() ?? "0";
-
-        int cntr = (int)existingOpaque.TestCntr;
-        Logger.LogCritical($"TaskStatus : Token : {existingOpaque.Token} cntr {cntr}");
-        if (cntr < 5)
+        try
         {
-            Logger.LogCritical($"TaskStatus - cntr {cntr} < 5");
-            cntr++;
-            var updateOpaque = existingOpaque with { TestCntr = cntr };
-            taskConfig.OpaqueConfig = JsonConvert.SerializeObject(updateOpaque);
-            var logEntry = updates?.LastOrDefault();
-            var resultCode = logEntry?.Status ?? TaskStatusCode.Running;
-            var result = new TaskStatusEvent(resultCode, null, logEntry?.Description ?? resultCode.ToString());
-            return Task.FromResult(result);
-        }
-        else
-        {
-            Logger.LogCritical($"TaskStatus - cntr {cntr} > 5");
-            var logEntry = updates?.LastOrDefault();
-            var resultCode = logEntry?.Status ?? TaskStatusCode.Complete;
-            var exitCode = logEntry?.ExitCode;
-            var result = new TaskStatusEvent(resultCode, exitCode, logEntry?.Description ?? resultCode.ToString());
-            return Task.FromResult(result);
-        }
-    }
-
-    private static string GetTaskId(ITaskConfig taskConfig) => taskConfig.OpaqueConfig;
-
-    private void UpdateTaskStatus(ITaskConfig taskConfig, TaskStatusEvent taskStatus)
-    {
-        var taskId = GetTaskId(taskConfig);
-
-        if (!_taskStatuses.TryGetValue(taskId, out var taskLogStatus))
-        {
-            List<TaskStatusEvent> events = [taskStatus];
-            _taskStatuses.TryAdd(taskId, new(events));
-        }
-        else
-        {
-            var previousUpdates = (List<TaskStatusEvent>)taskLogStatus.StatusUpdates;
-            if (previousUpdates.Last().ExitCode != 2)
+            Logger.LogCritical($"TaskLogProtocol : check for file {filePath}");
+            if (File.Exists(filePath))
             {
-                previousUpdates.Add(taskStatus);
+                var fileContents = await File.ReadAllTextAsync(filePath);
+                return fileContents;
             }
+            return string.Empty;
         }
-
-        if (taskStatus.Status == TaskStatusCode.Complete)
+        catch
         {
-            Logger.LogCritical("UpdateTaskStatus - Before Config Update", taskConfig);
-            taskConfig.Properties["Task Complete"] = "Yes";
-            Logger.LogCritical("UpdateTaskStatus - After Config Update", taskConfig);
+            return string.Empty;
         }
     }
+
+    public Task<IEnumerable<string>> GetTaskLogList(IReadOnlyTaskConfig taskInfo)
+    {
+        Logger.LogCritical("TaskLogProtocol : get log list");
+        var opaqueConfig = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskInfo.OpaqueConfig);
+        var taskId = opaqueConfig.TaskId.ToString();
+
+        var logDir = Path.Join(IntegrationFactory.AssemblyDirectory, "jobOutput");
+        var filter = $"AsyscoAmt-{taskId}.log";
+        Logger.LogCritical($"TaskLogProtocol : log dir {logDir} filter {filter}");
+
+        var files = Directory.GetFiles(logDir, filter);
+        return Task.FromResult<IEnumerable<string>>(files);
+     }
 }
 
 ```
-                   TaskProtocol.cs 
-
-The above code snippet is dummy code that allows a task to start, log definition information of the agent and task and then complete after 5 TaskStatus cycles.
-It shows how the cycle counter is passed between status checks using the TaskOpaqueConfig capability (see Models TaskConfigOpaque).
-
-During a StartTask request, the TaskOpaqueConfig module is created for the task and persisted. Each task must have a unique id the Guid.NewGuid() function is used
-to generate one. This is persisted in the TaskId of the TaskOpaqueConfiguration module.
-
-The task definitions are saved in a TaskConfig object (see Models TaskConfig). The reason for this is to manage the task definitions to determine which values are present and
-which values are not present. While it is possible to use the ITaskConfig interface to retrieve definition values, ITaskConfig consists of dynamic values and only contains the
-values entered for the task definition. It contains no reference to null values. 
-
-For each status check, the TaskOpaqueConfig is retrieved and the counter is checked and incremented and the TaskOpaqueConfig counter value is updated.  If the value is less than 5 and a **running** status is returned.
-When the counter exceeds 5 a **Complete** message is returned.
+The above code implements two methods, one to retrieve a list of joblogs associated with the task, and the other to retrieve the joblog. The joblog name includes the TaskId of the task created during the StartTask method.
