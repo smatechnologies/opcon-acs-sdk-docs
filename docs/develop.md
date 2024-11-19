@@ -2,7 +2,7 @@
 sidebar_label: 'Develop'
 ---
 
-# Developing ACS Solution
+# Developing an ACS Solution
 
 The ACS implementation is a C# .net Library. 
 
@@ -13,6 +13,7 @@ The SDK documentation is based on the AsyscoAMT implementation.
 
 - ElementaryIntegration shows various schema definitions for creating tasks definition screens.
 - OpConIntegration shows an implementation of selecting and running tasks in a remote opCon system.
+- AsyscoAMT shows an implementation of a Rest-API connection using two job subtypes.
 
 1. Create a C# Library project.
 2. Add Nuget packages ACSSDK (SMA Package).
@@ -43,6 +44,8 @@ public class IntegrationFactory : IIntegrationFactory
 
     public string Version => "0.0.1";
 
+   internal static string AssemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+
     public IIntegration CreateIntegration(string application, IConfig integrationInfo, ILogger logger)
     {
         if (application != AppName)
@@ -55,7 +58,6 @@ public class IntegrationFactory : IIntegrationFactory
 }
 
 ```
-                    IntegrationFactory.cs 
 
 The **IntegrationFactory** class must implement the **IIntegrationFactory** interface.
 
@@ -117,8 +119,6 @@ public sealed class Integration : IIntegration
 }
 
 ```
-                    Integration.cs 
-
 The **Integration** class must implement the **IIntegration** interface.
 
 The Integration class sets up the references to the following modules
@@ -130,3 +130,6 @@ The Integration class sets up the references to the following modules
 - TaskProtocol          class to be created that defines how tasks on the target system are managed.  
 
 Includes the **Integration** method called by the IntegrationFactory.
+
+Next create the agent and task screen definitions (see **Schema** section.)
+Next complete the IntegrationProtocol, TaskProtocol and TaskLogProtocol to complete the implemention (see **Protocols** section).
