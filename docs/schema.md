@@ -296,7 +296,172 @@ public static class TypeScriptSchemaGenerator
 }
 
 ```
-The above codes shows how to implement a list for the **ScriptParameters** 
+The above code shows how to implement a list for the **ScriptParameters** 
+
+## Exit Code Failure Criteria
+
+The **SchemaResultBuilder** class provides the **WithExitCodeFailureCriteria** method that adds an Exit Code Failure Criteria field to task definitions. This feature allows users to define custom rules for determining whether a task succeeded or failed based on its exit code. This is particularly useful when integrating with external systems where non-zero exit codes may indicate success, or when specific exit code ranges have special meanings.
+
+### Adding Exit Code Criteria to Your Schema
+
+To enable exit code failure criteria in your task schema, chain the `.WithExitCodeFailureCriteria()` method to the SchemaResultBuilder before calling `.Build()`:
+
+```
+using ACSSDK.Implementation;
+using ACSSDK.Interfaces;
+using ACSSDK.Models;
+using AsyscoAmt;
+using AsyscoAMT.Util;
+using Newtonsoft.Json;
+
+namespace AsyscoAMT.Generators;
+
+public static class TypeBatchJobSchemaGenerator
+{
+    public const string JobType = "Batch Job";
+
+    public static SchemaResult Generate(ITaskConfig taskConfig)
+    {
+        var schema = GetDataSchema(taskConfig);
+        var settings = new JsonSerializerSettings() { NullValueHandling = NullValueHandling.Ignore };
+        var schemaStr = JsonConvert.SerializeObject(schema, Formatting.None, settings);
+        var uiSchemaStr = GetUiSchema(taskConfig);
+
+        var schemaBuilder = new SchemaResultBuilder(new(schemaStr, uiSchemaStr, "{}", false), IntegrationFactory.AppName);
+        return schemaBuilder.WithExitCodeFailureCriteria().Build();
+    }
+}
+```
+
+The above code shows how to add the exit code failure criteria field to a task schema by calling `.WithExitCodeFailureCriteria()` before `.Build()`. This adds a specialized field to the task definition screen where users can configure exit code evaluation rules.
+
+### Available Operators
+
+The exit code failure criteria supports the following comparison operators:
+
+- **EQ** (=) - Equals
+- **NE** (≠) - Not equals  
+- **GT** (>) - Greater than
+- **LT** (<) - Less than
+- **GE** (≥) - Greater than or equal
+- **LE** (≤) - Less than or equal
+- **RG** - Range (requires both a starting value and ending value)
+
+Multiple criteria can be combined using **AND** or **OR** boolean operators to create complex evaluation rules.
+
+### Default Behavior
+
+If the exit code failure criteria field is added to a task schema but no custom criteria are configured by the user, the default behavior is:
+- Exit code **≠ 0** results in **Fail**
+- Exit code **= 0** results in **Finish OK**
+
+### Criteria Configuration Structure
+
+The exit code failure criteria are stored in the task configuration as an array under the property name `#opconExitCodeCriteria`. Each criterion in the array is an object with the following structure:
+
+**Required Fields:**
+- **operator** - An object containing:
+  - **value** - The operator code (EQ, NE, GT, LT, GE, LE, RG)
+  - **sign** - The visual symbol (=, ≠, >, <, ≥, ≤)
+- **value** - The integer value to compare against
+- **result** - The outcome if the condition is met: "Fail" or "Finish OK"
+
+**Optional Fields:**
+- **endValue** - Required only for Range (RG) operators, specifies the upper bound of the range
+- **booleanOperator** - Used to combine multiple criteria: "AND" or "OR"
+
+The configuration must contain at least one criterion (minItems: 1).
+
+### Using ExitCodeCriteria in TaskProtocol
+
+In the **TaskProtocol** implementation, use the static helper method **ExitCodeCriteria.TaskStatusCodeFromExitCode** to evaluate whether a task finished successfully based on the configured criteria:
+
+```
+using ACSSDK.Interfaces;
+using ACSSDK.Models;
+using ACSSDK.SchemaDefinitions;
+using AsyscoAMT.Models;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+
+namespace AsyscoAMT.Protocols;
+
+public class TaskProtocol(IIntegration Integration, ILogger Logger) : ITaskProtocol
+{
+    public Task<TaskStatusEvent> TaskStatus(ITaskConfig taskConfig)
+    {
+        var url = Integration.IntegrationInfo.Config.url;
+        var existingOpaque = JsonConvert.DeserializeObject<TaskOpaqueConfig>(taskConfig.OpaqueConfig);
+        var stConfig = JsonConvert.SerializeObject(taskConfig.Config);
+        TaskConfig tConfig = JsonConvert.DeserializeObject<TaskConfig>(stConfig);
+
+        var taskId = GetTaskId(taskConfig);
+        
+        // Retrieve the exit code from the external system
+        int exitCode = GetTaskExitCodeFromExternalSystem(url, taskId, tConfig);
+        
+        // Evaluate the exit code against the configured failure criteria
+        var taskStatusCode = ExitCodeCriteria.TaskStatusCodeFromExitCode(exitCode, taskConfig);
+        
+        Logger.LogInformation($"Task {taskId} completed with exit code {exitCode}, status: {taskStatusCode}");
+        
+        return Task.FromResult(new TaskStatusEvent(taskStatusCode, exitCode, "Complete"));
+    }
+}
+```
+
+The **ExitCodeCriteria.TaskStatusCodeFromExitCode(exitCode, taskConfig)** method is the primary method for evaluating exit codes. It takes the following parameters:
+- **exitCode** (int) - The integer exit code returned by the external system
+- **taskConfig** (ITaskConfig) - The ITaskConfig object containing the user-configured failure criteria
+- **criteriaPropName** (string, optional) - The property name where the criteria are stored. Defaults to `ExitCodeCriteria.Name` ("#opconExitCodeCriteria")
+
+The method evaluates the exit code against the criteria configured in the task definition and returns either **TaskStatusCode.Complete** or **TaskStatusCode.Failed**. The exit code value should then be passed as the second parameter to **TaskStatusEvent** so it is visible in OpCon job details.
+
+**Method Signature:**
+```
+public static TaskStatusCode TaskStatusCodeFromExitCode(
+    int exitCode, 
+    ITaskConfig configWithCriteria, 
+    string criteriaPropName = ExitCodeCriteria.Name
+)
+```
+
+Most implementations use the default property name and only need to pass the first two parameters.
+
+### Alternative Evaluation Method
+
+If you need a boolean result instead of a TaskStatusCode, you can use the **DoesExitCodeFulfillCriteria** method:
+
+```
+bool isSuccess = ExitCodeCriteria.DoesExitCodeFulfillCriteria(exitCode, taskConfig);
+```
+
+This method has the same parameters as **TaskStatusCodeFromExitCode**:
+- **exitCode** (int) - The integer exit code to evaluate
+- **taskConfig** (ITaskConfig) - The ITaskConfig object containing the configured failure criteria
+- **criteriaPropName** (string, optional) - The property name where the criteria are stored. Defaults to `ExitCodeCriteria.Name`
+
+The method returns **true** if the exit code should be considered successful (Finish OK), **false** if it should be considered a failure.
+
+### Example Usage Scenarios
+
+**Scenario 1: Success on exit codes 0-4**  
+Configure a range operator where exit codes 0 through 4 result in "Finish OK", while all other exit codes result in "Fail".
+- Operator: **RG** (Range)
+- Value: 0
+- End Value: 4
+- Result: Finish OK
+
+**Scenario 2: Specific success codes**  
+Use multiple criteria combined with OR operators to specify that exit codes 0, 2, and 100 all indicate success.
+- Criteria 1: Operator **EQ**, Value: 0, Result: Finish OK, Boolean: OR
+- Criteria 2: Operator **EQ**, Value: 2, Result: Finish OK, Boolean: OR  
+- Criteria 3: Operator **EQ**, Value: 100, Result: Finish OK
+
+**Scenario 3: Complex failure conditions**  
+Configure criteria where exit codes less than 0 or greater than 10 indicate failure.
+- Criteria 1: Operator **LT**, Value: 0, Result: Fail, Boolean: OR
+- Criteria 2: Operator **GT**, Value: 10, Result: Fail
 
 ## SchemaGeneratorUtils
 This is a utility class contained in the **Util** directory and contains various methods to assist with schema generatio.
